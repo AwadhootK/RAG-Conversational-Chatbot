@@ -45,3 +45,6 @@ async def upload_file(index: str, file: UploadFile = File(...)):
         global rcb
         rcb = RAGConversationalChatbot(pdf_paths=get_all_files("docs"))
     return {"info": f"file '{file.filename}' saved at '{file_location}'"}
+
+
+app.run(host='0.0.0.0', port=5000)
