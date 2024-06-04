@@ -26,6 +26,10 @@ def get_all_files(directory):
     return files
 
 
+@app.get("/ping")
+async def ping():
+    return "pong"
+
 @app.post("/ask")
 async def respond(query: Query):
     ans = rcb.answer(query.query)
