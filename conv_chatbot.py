@@ -135,3 +135,5 @@ class RAGConversationalChatbot:
 
             except Exception as e:
                 print(f"Error using Gemini API: {e}")
+
+# run EC2 server using:  uvicorn main:app --host 0.0.0.0 --port 5000
