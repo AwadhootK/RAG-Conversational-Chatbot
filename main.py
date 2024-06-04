@@ -47,4 +47,4 @@ async def upload_file(index: str, file: UploadFile = File(...)):
     return {"info": f"file '{file.filename}' saved at '{file_location}'"}
 
 
-app.run(host='0.0.0.0', port=5000)
+# app.run(host='0.0.0.0', port=5000)
