@@ -51,6 +51,7 @@ async def respond(query: Query):
 @app.post("/empty-context")
 async def empty():
     empty_folder('docs')
+    return "done"
 
 
 @app.post("/upload/{index}")
