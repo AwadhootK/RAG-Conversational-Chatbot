@@ -97,6 +97,8 @@ class RAGConversationalChatbot:
 
         vector_index = Chroma.from_texts(
             texts, self.embeddings).as_retriever(search_kwargs={"k": 5})
+        
+        print('vector indexing done!')
         return vector_index
 
     def answer(self, query):
