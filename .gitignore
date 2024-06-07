@@ -1,3 +1,4 @@
 .env
 /chatbot_env
 /__pycache__
+temp.py

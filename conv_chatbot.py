@@ -19,6 +19,16 @@ warnings.filterwarnings("ignore")
 load_dotenv('.env')
 
 
+def empty_folder(folder_path):
+    for item in os.listdir(folder_path):
+        item_path = os.path.join(folder_path, item)
+        if os.path.isfile(item_path):
+            os.remove(item_path)
+        elif os.path.isdir(item_path):
+            empty_folder(item_path)
+            os.rmdir(item_path)
+
+
 class CustomGoogleGenerativeAIEmbeddings(GoogleGenerativeAIEmbeddings):
     def embed_documents(self, texts: List[str], task_type: Optional[str] = None, titles: Optional[List[str]] = None, output_dimensionality: Optional[int] = None) -> List[List[float]]:
         embeddings_repeated = super().embed_documents(
@@ -41,9 +51,22 @@ class RAGConversationalChatbot:
         self.embeddings = CustomGoogleGenerativeAIEmbeddings(
             model="models/embedding-001")
         self.pdf_paths = pdf_paths
+        self.vector_index = None
+        self.texts = []
+        self.chromadb = None
+        self.summary_model = None
+
+    def clear(self):
+        self.embeddings = None
+        self.pdf_paths = []
+        self.vector_index = None
+        self.texts = []
+        self.chromadb = None
+        self.summary_model = None
 
     def init_convo(self):
-        vector_index = self.load_and_index_pdfs()
+        if self.vector_index == None:
+            self.load_and_index_pdfs()
         contextualize_q_system_prompt = """Given a chat history and the latest user question \
         which might reference context in the chat history, formulate a standalone question \
         which can be understood without the chat history. Do NOT answer the question, \
@@ -56,7 +79,7 @@ class RAGConversationalChatbot:
             ]
         )
         history_aware_retriever = create_history_aware_retriever(
-            self.llm, vector_index, contextualize_q_prompt)
+            self.llm, self.vector_index, contextualize_q_prompt)
 
         qa_system_prompt = """You are an assistant for question-answering tasks. \
         Use the following pieces of retrieved context to answer the question. \
@@ -95,11 +118,15 @@ class RAGConversationalChatbot:
             context = "\n\n".join(str(p.page_content) for p in new_pages)
             texts.extend(text_splitter.split_text(context))
 
-        vector_index = Chroma.from_texts(
-            texts, self.embeddings).as_retriever(search_kwargs={"k": 5})
-        
+        self.texts = texts
+        self.chromadb = Chroma.from_texts(texts, self.embeddings)
+        vector_index = self.chromadb.as_retriever(search_kwargs={"k": 5})
+
         print('vector indexing done!')
-        return vector_index
+        self.vector_index = vector_index
+
+        # empty local directory after creating index
+        empty_folder("docs")
 
     def answer(self, query):
         rag_chain = self.init_convo()
@@ -131,9 +158,40 @@ class RAGConversationalChatbot:
                 chat_history.extend(
                     [HumanMessage(content=question), response["answer"]])
                 print("Chatbot:", response["answer"])
+
                 print('*'*50)
 
             except Exception as e:
                 print(f"Error using Gemini API: {e}")
+
+    def answer_from_llm(self, query):
+        response = self.llm.invoke(query)
+        return response.content
+
+    def summarize_from_llm(self, text):
+        prompt = f"""You are a highly skilled text summarizer. 
+        Please read the following text carefully and provide a concise summary that 
+        captures the main points and key details. Make sure the summary is clear, coherent, 
+        and retains the essential information from the original text.
+        Here is the text to summarize: {text}"""
+
+        self.summary_model = genai.GenerativeModel("gemini-pro")
+        summary = self.summary_model.generate_content(prompt)
+
+        combined_summary = ''.join([part.text for part in summary.parts])
+        return combined_summary
+
+    def embed_query(self, query):
+        return self.embeddings.embed_documents([query])[0]
+
+    def sematic_doc_search_by_vector(self, query):
+        query_vector = self.embed_query(query)
+        results = self.chromadb.similarity_search_by_vector(query_vector, k=1)
+        if results:
+            top_document = results[0].page_content
+            return top_document
+        else:
+            return "No relevant documents found."
+
 
 # run EC2 server using:  uvicorn main:app --host 0.0.0.0 --port 5000
