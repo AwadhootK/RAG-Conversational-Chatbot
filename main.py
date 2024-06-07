@@ -24,6 +24,7 @@ class Data:
     def __init__(self, username):
         self.pdf_paths = Data.get_all_files(f"docs/{username}")
         self.rcb = RAGConversationalChatbot(pdf_paths=self.pdf_paths)
+        self.username = username
 
     @staticmethod
     def get_all_files(directory):
@@ -106,10 +107,17 @@ async def ping():
 @app.post("/ask")
 async def respond(query: Query):
     global data
+    full_path = os.path.join(os.getcwd(), "docs", query.username)
     if data == None:
         data = Data(username=query.username)
         data.rcb = RAGConversationalChatbot(
-            pdf_paths=Data.get_all_files(f"/docs/{query.username}"))
+            pdf_paths=Data.get_all_files(full_path))
+        data.rcb.load_and_index_pdfs()
+    elif query.username != data.username:
+        data.rcb = RAGConversationalChatbot(
+            pdf_paths=Data.get_all_files(full_path))
+        data.rcb.load_and_index_pdfs()
+
     ans = data.rcb.answer(query.query)
     return {'query': query.query, 'answer': ans}
 
@@ -137,24 +145,29 @@ async def upload_file(
 
     file_location = f"docs/{username}/{file.filename}"
 
-    if not os.path.exists(f'docs/{username}'):
-        os.makedirs(f'docs/{username}')
+    try:
+        os.makedirs(f"docs/{username}")
+    except FileExistsError:
+        pass
+
     Data.save_file_locally(file, file_location)
 
     res = {'index': False, 'saved': False}
 
-    global data
-    if data == None:
-        data = Data(username=username)
-    if index:
-        data.rcb = RAGConversationalChatbot(
-            pdf_paths=data.get_all_files(f"docs/{username}"))
-        data.rcb.load_and_index_pdfs()
-        res['index'] = True
     if save:
         Data.upload_file_to_s3(
             file_path=file_location, name=f'{username}/{file.filename}')
         res['saved'] = f'{username}/{file.filename}'
+    else:
+        if index:
+            global data
+            data = Data(username=username)
+            full_path = os.path.join(os.getcwd(), "docs", username)
+            data.rcb = RAGConversationalChatbot(
+                pdf_paths=data.get_all_files(full_path))
+            data.rcb.load_and_index_pdfs()
+            res['index'] = True
+
     return {"info": res}
 
 
@@ -162,6 +175,8 @@ async def upload_file(
 async def restore_user_files(username: str = Form(...)):
     result = Data.download_files_from_s3(username=username)
     if result == 'Done':
+        global data
+        data = None
         return "Context successfully restored"
 
 
@@ -181,8 +196,9 @@ async def summarize_doc(username: str = Form(...)):
     global data
     if data == None:
         data = Data(username=username)
+        full_path = os.path.join(os.getcwd(), "docs", username)
         data.rcb = RAGConversationalChatbot(
-            pdf_paths=data.get_all_files(f"docs/{username}"))
+            pdf_paths=data.get_all_files(full_path))
     data.rcb.load_and_index_pdfs()
     if data.rcb.texts == None or data.rcb.texts == []:
         return {'summary': 'No document to summarize'}
