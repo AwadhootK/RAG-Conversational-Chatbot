@@ -108,6 +108,8 @@ async def ping():
 async def respond(query: Query):
     global data
     full_path = os.path.join(os.getcwd(), "docs", query.username)
+    print(full_path)
+    # print(data.rcb.pdf_paths)
     if data == None:
         data = Data(username=query.username)
         data.rcb = RAGConversationalChatbot(
@@ -158,15 +160,15 @@ async def upload_file(
         Data.upload_file_to_s3(
             file_path=file_location, name=f'{username}/{file.filename}')
         res['saved'] = f'{username}/{file.filename}'
-    else:
-        if index:
-            global data
-            data = Data(username=username)
-            full_path = os.path.join(os.getcwd(), "docs", username)
-            data.rcb = RAGConversationalChatbot(
-                pdf_paths=data.get_all_files(full_path))
-            data.rcb.load_and_index_pdfs()
-            res['index'] = True
+    
+    if index:
+        global data
+        data = Data(username=username)
+        full_path = os.path.join(os.getcwd(), "docs", username)
+        data.rcb = RAGConversationalChatbot(
+            pdf_paths=data.get_all_files(full_path))
+        data.rcb.load_and_index_pdfs()
+        res['index'] = True
 
     return {"info": res}
 
