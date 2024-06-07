@@ -141,17 +141,21 @@ async def upload_file(
         os.makedirs(f'docs/{username}')
     Data.save_file_locally(file, file_location)
 
+    res = {'index': False, 'saved': False}
+
     global data
     if data == None:
         data = Data(username=username)
     if index:
         data.rcb = RAGConversationalChatbot(
             pdf_paths=data.get_all_files(f"docs/{username}"))
+        data.rcb.load_and_index_pdfs()
+        res['index'] = True
     if save:
         Data.upload_file_to_s3(
             file_path=file_location, name=f'{username}/{file.filename}')
-        pass
-    return {"info": f"file '{file.filename}' saved at '{file_location}'"}
+        res['saved'] = f'{username}/{file.filename}'
+    return {"info": res}
 
 
 @ app.post("/download-context-files")
