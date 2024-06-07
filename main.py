@@ -13,6 +13,7 @@ from conv_chatbot import RAGConversationalChatbot
 
 class Query(BaseModel):
     query: str
+    username: str
 
 
 app = FastAPI()
@@ -20,21 +21,21 @@ app = FastAPI()
 
 class Data:
 
-    def __init__(self):
-        self.pdf_paths = Data.get_all_files("docs")
+    def __init__(self, username):
+        self.pdf_paths = Data.get_all_files(f"docs/{username}")
         self.rcb = RAGConversationalChatbot(pdf_paths=self.pdf_paths)
 
     @staticmethod
     def get_all_files(directory):
         files = []
-
-        if not os.path.exists("docs"):
-            os.makedirs("docs")
-        for entry in os.listdir(directory):
-            full_path = os.path.join(directory, entry)
-            if os.path.isfile(full_path):
-                files.append(full_path)
-        return files
+        try:
+            for entry in os.listdir(directory):
+                full_path = os.path.join(directory, entry)
+                if os.path.isfile(full_path):
+                    files.append(full_path)
+            return files
+        except Exception:
+            return []
 
     @staticmethod
     def empty_folder(folder_path):
@@ -47,11 +48,22 @@ class Data:
                 os.rmdir(item_path)
 
     @staticmethod
-    def upload_file_to_s3(file, name):
+    def save_file_locally(file: UploadFile, file_location: str):
+        with open(file_location, "wb") as f:
+            contents = file.file.read()
+            f.write(contents)
+
+    @staticmethod
+    def upload_file_to_s3(file_path, name):
         S3_BUCKET = 'awadhoot-rag-chatbot-files'
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(S3_BUCKET)
-        bucket.put_object(Key=name, Body=file)
+        try:
+            with open(file_path, 'rb') as f:
+                bucket.put_object(Key=name, Body=f)
+            print(f"File {name} uploaded successfully to S3.")
+        except Exception as e:
+            print(f"Error uploading file {name} to S3: {e}")
 
     @staticmethod
     def check_and_clean_folder(folder_path):
@@ -68,7 +80,7 @@ class Data:
         s3_folder = username
         local_dir = None
 
-        Data.check_and_clean_folder("docs")
+        Data.check_and_clean_folder(f"docs/{username}")
 
         for obj in bucket.objects.filter(Prefix=s3_folder):
             target = obj.key if local_dir is None \
@@ -79,18 +91,11 @@ class Data:
                 continue
             bucket.download_file(obj.key, target)
 
-        os.rename(s3_folder, "docs")
-        # restore()
+        os.rename(s3_folder, f"docs/{username}")
         return "Done"
 
 
-data = Data()
-
-
-def restore():
-    global data
-    data.rcb = RAGConversationalChatbot(pdf_paths=data.get_all_files("docs"))
-    data.rcb.load_and_index_pdfs()
+data = None
 
 
 @app.get("/ping")
@@ -101,14 +106,18 @@ async def ping():
 @app.post("/ask")
 async def respond(query: Query):
     global data
+    if data == None:
+        data = Data(username=query.username)
+        data.rcb = RAGConversationalChatbot(
+            pdf_paths=Data.get_all_files(f"/docs/{query.username}"))
     ans = data.rcb.answer(query.query)
     return {'query': query.query, 'answer': ans}
 
 
 @app.get("/empty-context")
-async def empty():
+async def empty(username: str = Form(...)):
     global data
-    data.empty_folder('docs')
+    data.empty_folder(f'docs/{username}')
     data.rcb.clear()
     return "done"
 
@@ -126,40 +135,50 @@ async def upload_file(
             detail="File not found"
         )
 
-    print(f'index={index}, save={save}, username={username}')
-    file_location = f"docs/{file.filename}"
-    with open(file_location, "wb") as f:
-        f.write(file.file.read())
+    file_location = f"docs/{username}/{file.filename}"
+
+    if not os.path.exists(f'docs/{username}'):
+        os.makedirs(f'docs/{username}')
+    Data.save_file_locally(file, file_location)
+
     global data
+    if data == None:
+        data = Data(username=username)
     if index:
         data.rcb = RAGConversationalChatbot(
-            pdf_paths=data.get_all_files("docs"))
+            pdf_paths=data.get_all_files(f"docs/{username}"))
     if save:
-        contents = file.file.read()
         Data.upload_file_to_s3(
-            file=contents, name=f'{username}/{file.filename}')
+            file_path=file_location, name=f'{username}/{file.filename}')
         pass
     return {"info": f"file '{file.filename}' saved at '{file_location}'"}
 
 
-@app.post("/download-context-files")
+@ app.post("/download-context-files")
 async def restore_user_files(username: str = Form(...)):
     result = Data.download_files_from_s3(username=username)
-
     if result == 'Done':
         return "Context successfully restored"
-    
 
-@app.post("/answer-llm")
+
+@ app.post("/answer-llm")
 async def answer_llm(query: Query):
     global data
+    if data == None:
+        data = Data(username=query.username)
+        data.rcb = RAGConversationalChatbot(
+            pdf_paths=data.get_all_files(f"docs/{query.username}"))
     response = data.rcb.answer_from_llm(query=query.query)
     return {'query': query, 'response': response}
 
 
-@app.get("/summarize")
-async def summarize_doc():
+@ app.get("/summarize")
+async def summarize_doc(username: str = Form(...)):
     global data
+    if data == None:
+        data = Data(username=username)
+        data.rcb = RAGConversationalChatbot(
+            pdf_paths=data.get_all_files(f"docs/{username}"))
     data.rcb.load_and_index_pdfs()
     if data.rcb.texts == None or data.rcb.texts == []:
         return {'summary': 'No document to summarize'}
@@ -167,9 +186,13 @@ async def summarize_doc():
     return {'summary': summary}
 
 
-@app.post("/semantic_search")
+@ app.post("/semantic_search")
 async def semantic_search(query: Query):
     global data
+    if data == None:
+        data = Data(username=query.username)
+        data.rcb = RAGConversationalChatbot(
+            pdf_paths=data.get_all_files(f"docs/{query.username}"))
     semantic_result = data.rcb.sematic_doc_search_by_vector(query=query.query)
     return {'similar_doc': semantic_result}
 
