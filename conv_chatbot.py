@@ -107,32 +107,35 @@ class RAGConversationalChatbot:
         return rag_chain
 
     def load_and_index_pdfs(self):
-        pages = []
-        texts = []
+        try:
+            pages = []
+            texts = []
 
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=10000, chunk_overlap=1000)
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=10000, chunk_overlap=1000)
 
-        for pdf_path in self.pdf_paths:
-            pdf_loader = PyPDFLoader(pdf_path)
-            new_pages = pdf_loader.load_and_split()
-            pages.extend(new_pages)
-            context = "\n\n".join(str(p.page_content) for p in new_pages)
-            texts.extend(text_splitter.split_text(context))
+            for pdf_path in self.pdf_paths:
+                pdf_loader = PyPDFLoader(pdf_path)
+                new_pages = pdf_loader.load_and_split()
+                pages.extend(new_pages)
+                context = "\n\n".join(str(p.page_content) for p in new_pages)
+                texts.extend(text_splitter.split_text(context))
 
-        self.texts = texts
+            self.texts = texts
 
-        if texts == []:
+            if texts == []:
+                return False
+            self.chromadb = Chroma.from_texts(texts, self.embeddings)
+            vector_index = self.chromadb.as_retriever(search_kwargs={"k": 5})
+
+            print('vector indexing done!')
+            self.vector_index = vector_index
+
+            # empty local directory after creating index
+            empty_folder("docs")
+            return True
+        except Exception as e:
             return False
-        self.chromadb = Chroma.from_texts(texts, self.embeddings)
-        vector_index = self.chromadb.as_retriever(search_kwargs={"k": 5})
-
-        print('vector indexing done!')
-        self.vector_index = vector_index
-
-        # empty local directory after creating index
-        empty_folder("docs")
-        return True
 
     def answer(self, query):
         rag_chain = self.init_convo()

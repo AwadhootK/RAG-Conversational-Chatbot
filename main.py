@@ -210,7 +210,7 @@ async def answer_llm(query: Query):
         data.rcb = RAGConversationalChatbot(
             pdf_paths=data.get_all_files(f"docs/{query.username}"))
     response = data.rcb.answer_from_llm(query=query.query)
-    return {'query': query, 'response': response}
+    return {'query': query, 'answer': response}
 
 
 @ app.get("/summarize/{username}")
@@ -219,8 +219,11 @@ async def summarize_doc(username):
     if data == None:
         data = Data(username=username)
         full_path = os.path.join(os.getcwd(), "docs", username)
-        data.rcb = RAGConversationalChatbot(
-            pdf_paths=data.get_all_files(full_path))
+        if os.path.exists(full_path):
+            data.rcb = RAGConversationalChatbot(
+                pdf_paths=data.get_all_files(full_path))
+        else:
+            return {'summary': 'No document to summarize'}
     data.rcb.load_and_index_pdfs()
     if data.rcb.texts == None or data.rcb.texts == []:
         return {'summary': 'No document to summarize'}
