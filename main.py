@@ -1,11 +1,10 @@
-import asyncio
 import os
 import shutil
 
 import boto3
-from fastapi import (BackgroundTasks, FastAPI, File, Form, HTTPException,
-                     UploadFile)
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
 # from chatbot import RAGChatbot
 from conv_chatbot import RAGConversationalChatbot
@@ -17,6 +16,18 @@ class Query(BaseModel):
 
 
 app = FastAPI()
+
+origins = [
+    "*",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Allow all origins by using ["*"]
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 
 class Data:
@@ -109,7 +120,6 @@ async def respond(query: Query):
     global data
     full_path = os.path.join(os.getcwd(), "docs", query.username)
     print(full_path)
-    # print(data.rcb.pdf_paths)
     if data == None:
         data = Data(username=query.username)
         data.rcb = RAGConversationalChatbot(
@@ -124,18 +134,26 @@ async def respond(query: Query):
     return {'query': query.query, 'answer': ans}
 
 
-@app.get("/empty-context")
-async def empty(username: str = Form(...)):
+@app.get("/empty-context/{username}")
+async def empty(username):
     global data
-    data.empty_folder(f'docs/{username}')
-    data.rcb.clear()
-    return "done"
+    full_path = os.path.join(os.getcwd(), "docs", username)
+    # if data == None:
+    # data = Data(username=username)
+    data.rcb = RAGConversationalChatbot(
+        pdf_paths=[])
+    if os.path.exists(full_path):
+        data.empty_folder(full_path)
+        os.rmdir(full_path)
+        data.rcb.clear()
+        return "done"
+    return "context is already empty"
 
 
 @app.post("/upload")
 async def upload_file(
-    index: bool = Form(...),
-    save: bool = Form(...),
+    index: str = Form(...),
+    save: str = Form(...),
     username: str = Form(...),
     file: UploadFile = File(...)
 ):
@@ -156,12 +174,14 @@ async def upload_file(
 
     res = {'index': False, 'saved': False}
 
-    if save:
+    if save == 'true':
+        print('saved')
         Data.upload_file_to_s3(
             file_path=file_location, name=f'{username}/{file.filename}')
         res['saved'] = f'{username}/{file.filename}'
-    
-    if index:
+
+    if index == 'true':
+        print('indexing')
         global data
         data = Data(username=username)
         full_path = os.path.join(os.getcwd(), "docs", username)
@@ -193,8 +213,8 @@ async def answer_llm(query: Query):
     return {'query': query, 'response': response}
 
 
-@ app.get("/summarize")
-async def summarize_doc(username: str = Form(...)):
+@ app.get("/summarize/{username}")
+async def summarize_doc(username):
     global data
     if data == None:
         data = Data(username=username)

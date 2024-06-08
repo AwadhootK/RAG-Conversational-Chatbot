@@ -66,7 +66,9 @@ class RAGConversationalChatbot:
 
     def init_convo(self):
         if self.vector_index == None:
-            self.load_and_index_pdfs()
+            res = self.load_and_index_pdfs()
+            if not res:
+                return False
         contextualize_q_system_prompt = """Given a chat history and the latest user question \
         which might reference context in the chat history, formulate a standalone question \
         which can be understood without the chat history. Do NOT answer the question, \
@@ -119,6 +121,9 @@ class RAGConversationalChatbot:
             texts.extend(text_splitter.split_text(context))
 
         self.texts = texts
+
+        if texts == []:
+            return False
         self.chromadb = Chroma.from_texts(texts, self.embeddings)
         vector_index = self.chromadb.as_retriever(search_kwargs={"k": 5})
 
@@ -127,9 +132,12 @@ class RAGConversationalChatbot:
 
         # empty local directory after creating index
         empty_folder("docs")
+        return True
 
     def answer(self, query):
         rag_chain = self.init_convo()
+        if rag_chain == False:
+            return 'The context is empty. Please add a file to query.'
         chat_history = []
         try:
             response = rag_chain.invoke({
