@@ -1,7 +1,3 @@
-Sure, here's a well-designed GitHub README markdown for your projects:
-
----
-
 # RAGscribe
 
 A chatbot application leveraging Google's Gemini LLM for document queries using Retrieval-Augmented Generation (RAG). Features include context preservation, handling out-of-context queries, and document summarization.
